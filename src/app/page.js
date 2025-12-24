@@ -299,7 +299,15 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            {publicPrompts.length === 0 && !isLoadingMore ? <div className="text-center py-24 bg-slate-50 rounded-3xl border border-slate-100 border-dashed"><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-400"><Search className="w-6 h-6" /></div><p className="text-slate-500 font-medium">在“{selectedCategory}”分类下暂无内容...🚀</p></div></div> : <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6">{publicPrompts.map((item) => <div key={item.id} className="break-inside-avoid"><PromptCard item={item} onClick={() => setSelectedPrompt(item)} /></div>)}</div>}
+            {publicPrompts.length === 0 && !isLoadingMore ? <div className="text-center py-24 bg-slate-50 rounded-3xl border border-slate-100 border-dashed"><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-400"><Search className="w-6 h-6" /></div><p className="text-slate-500 font-medium">在“{selectedCategory}”分类下暂无内容...🚀</p></div></div> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {publicPrompts.map((item) => (
+                <PromptCard
+                  key={item.id}
+                  item={item}
+                  onClick={() => setSelectedPrompt(item)}
+                />
+              ))}
+            </div>}
             {isLoadingMore && <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div>}
           </div>
         </div>
