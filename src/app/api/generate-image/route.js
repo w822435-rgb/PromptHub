@@ -1,17 +1,4 @@
-import OpenAI from "openai";
-import { createClient } from '@supabase/supabase-js';
-
-// 1. 初始化 SiliconFlow 客户端
-const client = new OpenAI({
-  apiKey: process.env.SILICONFLOW_API_KEY, 
-  baseURL: "https://api.siliconflow.cn/v1" // 硅基流动地址
-});
-
-// 2. 初始化 Supabase Admin (用于上传)
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
-);
+import { NextResponse } from "next/server";
 
 export const runtime = 'edge';
 
@@ -19,52 +6,48 @@ export async function POST(request) {
   try {
     const { prompt } = await request.json();
 
-    if (!prompt) return new Response("Prompt is required", { status: 400 });
+    if (!prompt) {
+      return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    }
 
-    console.log("开始生成预览图...");
-
-    // --- A. 调用 Flux.1-schnell (又快又好) ---
-    const imageResponse = await client.images.generate({
-      model: "black-forest-labs/FLUX.1-schnell", 
-      prompt: prompt.substring(0, 500), 
-      n: 1,
-      size: "1024x1024", 
-    });
-
-    const originalImageUrl = imageResponse.data[0].url;
-    console.log("Flux 生成成功，URL:", originalImageUrl);
-
-    // --- B. 转存到 Supabase Storage ---
-    // 下载图片
-    const imgRes = await fetch(originalImageUrl);
-    const imgBuffer = await imgRes.arrayBuffer();
+    // 🏆 推荐方案：Flux.1-Dev (画质超强，光影细腻)
+    // 相比 Schnell，它生成稍慢几秒，但质量是“商业级”的
+    const MODEL_ID = "black-forest-labs/FLUX.1-dev";
     
-    // 上传到 Supabase
-    const fileName = `flux_${Date.now()}.png`;
-    const { error: uploadError } = await supabaseAdmin
-      .storage
-      .from('prompt-images')
-      .upload(fileName, imgBuffer, {
-        contentType: 'image/png',
-        upsert: false
-      });
+    // 🥈 备选方案：DeepSeek Janus-Pro (如果想试新模型，可解开下面这行注释)
+    // const MODEL_ID = "deepseek-ai/Janus-Pro-7B";
 
-    if (uploadError) throw uploadError;
-
-    // 获取公开链接
-    const { data: { publicUrl } } = supabaseAdmin
-      .storage
-      .from('prompt-images')
-      .getPublicUrl(fileName);
-
-    return new Response(JSON.stringify({ imageUrl: publicUrl }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
+    const response = await fetch("https://api.siliconflow.cn/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.SILICONFLOW_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODEL_ID,
+        prompt: prompt,
+        image_size: "1024x1024", // Flux 推荐分辨率
+        num_inference_steps: 25, // Dev 版本推荐 20-30 步 (Schnell 只需要 4 步，所以之前画质差)
+        seed: Math.floor(Math.random() * 1000000000) // 随机种子
+      }),
     });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("SiliconFlow API Error:", errorData);
+      throw new Error(errorData.message || "Failed to generate image");
+    }
+
+    const data = await response.json();
+    const imageUrl = data.images[0].url;
+
+    return NextResponse.json({ imageUrl });
 
   } catch (error) {
-    console.error("生图失败:", error);
-    // 即使失败也返回 null，不阻断流程
-    return new Response(JSON.stringify({ imageUrl: null, error: error.message }), { status: 200 });
+    console.error("Generate Image Error:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

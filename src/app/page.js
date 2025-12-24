@@ -5,9 +5,16 @@ import { supabase } from "@/lib/supabase";
 import AuthModal from "@/components/AuthModal";
 import PromptModal from "@/components/PromptModal";
 import {
-  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Heart, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare
+  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare, Star
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+
+// 辅助函数
+const formatLikes = (count) => {
+  if (!count || count <= 0) return 0;
+  if (count > 99) return "99+";
+  return count;
+};
 
 export default function Home() {
   const [user, setUser] = useState(null);
@@ -29,8 +36,6 @@ export default function Home() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const messagesEndRef = useRef(null);
-  // 🔥 新增：用于控制输入框的高度引用
-  const textareaRef = useRef(null);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -48,25 +53,6 @@ export default function Home() {
   useEffect(() => {
     if (mode === 'landing') fetchPublicPrompts();
   }, [selectedCategory, mode]);
-
-  // 🔥 新增：自动调整输入框高度的函数
-  const handleInputResize = (e) => {
-    const target = e.target;
-    setUserInput(target.value);
-    
-    // 只有在非加载状态下才调整高度
-    if (!loading) {
-      target.style.height = 'auto'; // 先重置高度
-      target.style.height = `${Math.min(target.scrollHeight, 200)}px`; // 设置为内容高度，最大200px
-    }
-  };
-
-  // 每次发送完重置高度
-  useEffect(() => {
-    if (userInput === "" && textareaRef.current) {
-      textareaRef.current.style.height = "56px"; // 回到初始高度
-    }
-  }, [userInput]);
 
   const fetchPublicPrompts = async () => {
     setIsLoadingMore(true);
@@ -96,8 +82,10 @@ export default function Home() {
 
   const handleLike = async (prompt) => {
     if (!user) { setShowAuthModal(true); return; }
+    
     const { data: existingLike } = await supabase.from('prompt_likes').select('*').eq('user_id', user.id).eq('prompt_id', prompt.id).single();
     let newLikesCount = prompt.likes;
+
     if (existingLike) {
       await supabase.from('prompt_likes').delete().eq('user_id', user.id).eq('prompt_id', prompt.id);
       newLikesCount = Math.max(0, (prompt.likes || 0) - 1);
@@ -105,7 +93,10 @@ export default function Home() {
       await supabase.from('prompt_likes').insert({ user_id: user.id, prompt_id: prompt.id });
       newLikesCount = (prompt.likes || 0) + 1;
     }
-    await supabase.from('prompts').update({ likes: newLikesCount }).eq('id', prompt.id);
+
+    const { error } = await supabase.from('prompts').update({ likes: newLikesCount }).eq('id', prompt.id);
+    if (error) { console.error("点赞失败:", error); return; }
+
     const updateList = (list) => list.map(p => p.id === prompt.id ? { ...p, likes: newLikesCount } : p);
     setPublicPrompts(prev => updateList(prev));
     setProfilePrompts(prev => updateList(prev));
@@ -130,8 +121,16 @@ export default function Home() {
         loadingToast.innerHTML = `<span>正在生成预览图...</span>`;
         document.body.appendChild(loadingToast);
         try {
+          let promptForImage = content;
+          try {
+             const jsonContent = JSON.parse(content);
+             if (jsonContent.english_structure) {
+               promptForImage = Object.values(jsonContent.english_structure).filter(Boolean).join(", ");
+             }
+          } catch (e) {}
+
           const imgRes = await fetch("/api/generate-image", {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: content }),
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: promptForImage }),
           });
           const imgData = await imgRes.json();
           if (imgData.imageUrl) imageUrl = imgData.imageUrl;
@@ -251,22 +250,20 @@ export default function Home() {
               <div className="absolute -inset-0.5 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-[2rem] blur-md opacity-30 group-hover:opacity-50 transition duration-500"></div>
               
               <div className="relative bg-white rounded-[1.8rem] shadow-2xl border border-slate-100 overflow-hidden flex flex-col">
-                <div className="flex items-start p-2 pr-2 border-b border-slate-100/80">
-                  {/* 🔥 修复点 1：输入框换行修复 */}
-                  <textarea 
-                    ref={textareaRef}
+                <div className="flex items-center p-2 pr-2 border-b border-slate-100/80">
+                  <input 
+                    type="text" 
                     value={userInput} 
-                    onChange={handleInputResize} 
-                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleOptimize())} 
+                    onChange={(e) => setUserInput(e.target.value)} 
+                    onKeyDown={(e) => e.key === "Enter" && handleOptimize()} 
                     placeholder={
                       generationMode === 'image' ? "例如：生成一只赛博朋克的猫，霓虹灯光..." :
                       generationMode === 'code' ? "例如：帮我写一个 Python 爬虫..." :
                       "例如：我想咨询一下感冒了该怎么办..."
                     }
-                    rows={1}
-                    className="flex-1 min-h-[56px] py-3.5 bg-transparent border-none outline-none text-lg px-6 text-slate-800 placeholder:text-slate-400 resize-none overflow-y-auto max-h-[200px]" 
+                    className="flex-1 h-14 bg-transparent border-none outline-none text-lg px-6 text-slate-800 placeholder:text-slate-400" 
                   />
-                  <button onClick={() => handleOptimize()} className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white hover:bg-slate-800 hover:scale-105 transition-all shadow-lg ml-2 mt-1 shrink-0"><ArrowUp className="w-6 h-6" /></button>
+                  <button onClick={() => handleOptimize()} className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white hover:bg-slate-800 hover:scale-105 transition-all shadow-lg ml-2"><ArrowUp className="w-6 h-6" /></button>
                 </div>
 
                 <div className="flex items-center gap-1 p-2 pl-6 bg-slate-50/50">
@@ -320,15 +317,7 @@ export default function Home() {
           <div className="fixed bottom-0 w-full bg-gradient-to-t from-white via-white to-transparent pt-12 pb-8 px-4 z-40">
             <div className="max-w-3xl mx-auto relative">
               <div className={`relative flex items-end bg-white border border-slate-200 rounded-3xl shadow-xl transition-all duration-300 ${loading ? "opacity-80 cursor-wait" : "hover:border-slate-300 ring-4 ring-slate-50"}`}>
-                <textarea 
-                  value={userInput} 
-                  onChange={handleInputResize} // 绑定自动高度
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleOptimize())} 
-                  disabled={loading} 
-                  placeholder={`[${generationMode === 'chat' ? '对话' : generationMode === 'image' ? '绘画' : '编程'}模式] 继续输入...`} 
-                  className="w-full min-h-[56px] py-4 pl-5 pr-14 bg-transparent border-none outline-none resize-none text-slate-800 placeholder:text-slate-400 text-base leading-relaxed overflow-y-auto max-h-[150px]" 
-                  rows={1} 
-                />
+                <textarea value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleOptimize())} disabled={loading} placeholder={`[${generationMode === 'chat' ? '对话' : generationMode === 'image' ? '绘画' : '编程'}模式] 继续输入...`} className="w-full max-h-[150px] py-4 pl-5 pr-14 bg-transparent border-none outline-none resize-none text-slate-800 placeholder:text-slate-400 text-base leading-relaxed no-scrollbar" rows={1} style={{ height: "auto", minHeight: "56px" }} />
                 <button onClick={() => handleOptimize()} disabled={!userInput.trim() || loading} className="absolute right-2 bottom-2 p-2 rounded-xl bg-black text-white"><ArrowUp className="w-5 h-5" /></button>
               </div>
             </div>
@@ -339,7 +328,6 @@ export default function Home() {
   );
 }
 
-// --- 辅助函数 ---
 const getCategoryStyle = (cat) => {
   switch (cat) {
     case "绘画": return { icon: <ImageIcon className="w-5 h-5 text-purple-600" />, bg: "bg-purple-100", text: "text-purple-700", gradient: "from-purple-500/10 to-pink-500/10" };
@@ -351,6 +339,8 @@ const getCategoryStyle = (cat) => {
 function PromptCard({ item, onClick }) {
   const rawCategory = item.category === "AI 助手" || !item.category ? "对话" : item.category;
   const style = getCategoryStyle(rawCategory);
+  const isLiked = item.likes > 0;
+
   return (
     <div onClick={onClick} className="group relative flex flex-col bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] hover:-translate-y-1 transition-all duration-300 cursor-pointer mb-6">
       <div className="relative w-full h-48 overflow-hidden bg-slate-50">
@@ -374,31 +364,121 @@ function PromptCard({ item, onClick }) {
       </div>
       <div className="flex flex-col flex-1 p-5">
         <h3 className="text-lg font-bold text-slate-900 leading-snug mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">{item.title}</h3>
-        <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">{item.description || item.content}</p>
+        
+        {rawCategory === "绘画" ? (
+           <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">
+             {(() => {
+               try {
+                 const json = JSON.parse(item.content);
+                 return json.chinese_structure?.["主体"] || json.english_structure?.subject || "点击查看详情";
+               } catch (e) {
+                 return item.description || item.content;
+               }
+             })()}
+           </p>
+        ) : (
+           <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">{item.description || item.content}</p>
+        )}
+
         <div className="mt-auto flex items-center justify-between pt-4 border-t border-slate-50">
           <div className="flex items-center gap-2"><img src={item.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author_id}`} className="w-6 h-6 rounded-full border border-slate-100" alt="avatar" /><span className="text-xs font-semibold text-slate-400 max-w-[80px] truncate">{item.profiles?.username || "PromptHub"}</span></div>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 text-slate-400 group-hover:bg-red-50 group-hover:text-red-500 transition-colors"><Heart className={`w-3.5 h-3.5 ${item.likes > 0 ? "fill-red-500 text-red-500" : ""}`} /><span className="text-xs font-bold">{item.likes || 0}</span></div>
+          
+          <div className={`
+            flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-300 group/star
+            ${isLiked ? "bg-yellow-50 text-yellow-500" : "bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-500"}
+          `}>
+            <Star className={`w-4 h-4 transition-all duration-300 group-active/star:scale-125 ${isLiked ? "fill-yellow-500 text-yellow-500" : ""}`} />
+            <span className="text-xs font-bold">{formatLikes(item.likes)}</span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+function StructuredImagePrompt({ content }) {
+  let parsedJson = null;
+  try { parsedJson = JSON.parse(content); } catch (e) { return <div className="whitespace-pre-wrap font-medium font-mono text-sm">{content}</div>; }
+
+  const { english_structure, chinese_structure } = parsedJson;
+  if (!english_structure && !chinese_structure) return <div className="whitespace-pre-wrap font-medium font-mono text-sm">{content}</div>;
+
+  return (
+    <div className="flex flex-col gap-6">
+      {english_structure && (
+        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+          <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200/60">
+            <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500"></span>English Version (For Midjourney/SD)</h4>
+            <SingleCopyButton text={Object.values(english_structure).filter(Boolean).join(", ")} />
+          </div>
+          <div className="flex flex-col gap-2">
+            {Object.entries(english_structure).map(([key, value]) => value && (
+              <div key={key} className="font-mono text-[13px]"><span className="font-bold text-slate-500 uppercase mr-2">{key}:</span><span className="text-slate-800">{value}</span></div>
+            ))}
+          </div>
+        </div>
+      )}
+      {chinese_structure && (
+        <div className="bg-yellow-50/50 rounded-2xl p-4 border border-yellow-100/60">
+           <div className="flex items-center justify-between mb-3 pb-2 border-b border-yellow-200/60">
+            <h4 className="text-sm font-bold text-yellow-800 uppercase tracking-wider flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-500"></span>中文版 (参考译文)</h4>
+            <SingleCopyButton text={Object.values(chinese_structure).filter(Boolean).join(", ")} label="复制中文" />
+          </div>
+          <div className="flex flex-col gap-2">
+            {Object.entries(chinese_structure).map(([key, value]) => value && (
+              <div key={key} className="text-sm"><span className="font-bold text-yellow-700 mr-2">{key}:</span><span className="text-yellow-900">{value}</span></div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SingleCopyButton({ text, label = "Copy English" }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  return (
+    <button onClick={handleCopy} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold transition-all bg-white border border-slate-200 hover:bg-slate-100 active:scale-95">
+      {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3 text-slate-500" />}
+      <span className={copied ? "text-green-600" : "text-slate-500"}>{copied ? "已复制" : label}</span>
+    </button>
+  );
+}
+
 function MessageItem({ role, content, onShare, mode }) {
   const isAi = role === "assistant";
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => { navigator.clipboard.writeText(content); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const isImageMode = mode === "image";
+  const [copied, setCopied] = useState(false);
+  
+  // 通用复制 (用于 Chat/Code 模式)
+  const handleGenericCopy = () => {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className={`flex gap-4 ${role === "user" ? "flex-row-reverse" : ""}`}>
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${isAi ? "bg-white border border-slate-200 text-yellow-500" : "bg-black text-white"}`}>{isAi ? <Bot className="w-6 h-6" /> : <User className="w-6 h-6" />}</div>
       <div className="flex flex-col gap-2 max-w-[85%]">
         <div className={`relative px-6 py-5 rounded-3xl text-[15px] leading-7 shadow-sm ${isAi ? "bg-white border border-slate-100 text-slate-800" : "bg-slate-50 text-slate-900 border border-slate-200"}`}>
-          {isAi ? ( <> <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 select-none"><Zap className="w-4 h-4 text-amber-500 fill-amber-500" /><span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{isImageMode ? "Midjourney Prompt" : "Optimized Prompt"}</span></div> {isImageMode ? (<div className="font-mono bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm break-all">{content}</div>) : (<div className="markdown-body prose prose-slate max-w-none"><ReactMarkdown>{content}</ReactMarkdown></div>)} </>) : <div className="whitespace-pre-wrap font-medium">{content}</div>}
+          {isAi ? ( <> 
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 select-none"><Zap className="w-4 h-4 text-amber-500 fill-amber-500" /><span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{isImageMode ? "Midjourney Prompt Structure" : "Optimized Prompt"}</span></div> 
+            {isImageMode ? (<StructuredImagePrompt content={content} />) : (<div className="markdown-body prose prose-slate max-w-none"><ReactMarkdown>{content}</ReactMarkdown></div>)} 
+          </>) : <div className="whitespace-pre-wrap font-medium">{content}</div>}
         </div>
+        
+        {/* 修复：无条件显示底部按钮栏 (只要有内容) */}
         {isAi && content && (
           <div className="flex items-center gap-2 pl-2 animate-in fade-in duration-500">
-            <button onClick={handleCopy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border bg-white text-slate-500 border-slate-200 hover:text-slate-900">{copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}{copied ? "已复制" : "复制"}</button>
+            {/* 只有非图片模式才显示这个通用复制，图片模式已经有内部复制了 */}
+            {!isImageMode && (
+              <button onClick={handleGenericCopy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border bg-white text-slate-500 border-slate-200 hover:text-slate-900">
+                {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                {copied ? "已复制" : "复制"}
+              </button>
+            )}
             <button onClick={() => onShare(content)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-white text-slate-500 border border-slate-200 hover:text-blue-600"><Share2 className="w-3 h-3" />分享到社区</button>
           </div>
         )}
