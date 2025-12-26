@@ -4,12 +4,14 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import AuthModal from "@/components/AuthModal";
 import PromptModal from "@/components/PromptModal";
+// 🔥 新增引入：手动发布组件
+import ManualPublishModal from "@/components/ManualPublishModal"; 
 import {
-  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare, Star
+  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare, Star, PlusCircle
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
-// 辅助函数
+// 辅助函数：格式化点赞数
 const formatLikes = (count) => {
   if (!count || count <= 0) return 0;
   if (count > 99) return "99+";
@@ -21,6 +23,9 @@ export default function Home() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState(null);
   
+  // 🔥 新增状态：控制发布弹窗显示
+  const [showPublishModal, setShowPublishModal] = useState(false);
+
   const [mode, setMode] = useState("landing");
   const [profileTab, setProfileTab] = useState("created");
   const [selectedCategory, setSelectedCategory] = useState("全部");
@@ -193,6 +198,17 @@ export default function Home() {
     <main className="min-h-screen bg-white text-slate-900 font-sans selection:bg-yellow-100 pb-20">
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} onLoginSuccess={setUser} />
       <PromptModal prompt={selectedPrompt} isOpen={!!selectedPrompt} onClose={() => setSelectedPrompt(null)} onLike={handleLike} />
+      
+      {/* 🔥 新增：手动发布弹窗 */}
+      <ManualPublishModal 
+        isOpen={showPublishModal} 
+        onClose={() => setShowPublishModal(false)} 
+        user={user} 
+        onSuccess={() => {
+          fetchPublicPrompts();
+          setMode("landing");
+        }} 
+      />
 
       <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -205,6 +221,18 @@ export default function Home() {
               <Search className="w-4 h-4" /><span>探索</span>
             </button>
             <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+            
+            {/* 🔥 新增：手动发布按钮 (只有登录后显示) */}
+            {user && (
+              <button 
+                onClick={() => setShowPublishModal(true)} 
+                className="hidden md:flex items-center gap-2 text-white bg-black hover:bg-slate-800 font-bold text-sm px-4 py-2 rounded-full transition-all shadow-sm mr-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>发布作品</span>
+              </button>
+            )}
+
             {user ? (
               <div className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 pr-2 py-1 pl-1 rounded-full transition-all border border-transparent hover:border-slate-200" onClick={() => setMode("profile")}>
                 <img src={user.user_metadata?.avatar_url} className="w-8 h-8 rounded-full border border-slate-200" />
@@ -299,15 +327,8 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            {publicPrompts.length === 0 && !isLoadingMore ? <div className="text-center py-24 bg-slate-50 rounded-3xl border border-slate-100 border-dashed"><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-400"><Search className="w-6 h-6" /></div><p className="text-slate-500 font-medium">在“{selectedCategory}”分类下暂无内容...🚀</p></div></div> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {publicPrompts.map((item) => (
-                <PromptCard
-                  key={item.id}
-                  item={item}
-                  onClick={() => setSelectedPrompt(item)}
-                />
-              ))}
-            </div>}
+            {/* 🔥 Grid 布局确认：使用 grid-cols-4 保证整齐排列 */}
+            {publicPrompts.length === 0 && !isLoadingMore ? <div className="text-center py-24 bg-slate-50 rounded-3xl border border-slate-100 border-dashed"><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-400"><Search className="w-6 h-6" /></div><p className="text-slate-500 font-medium">在“{selectedCategory}”分类下暂无内容...🚀</p></div></div> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">{publicPrompts.map((item) => <PromptCard key={item.id} item={item} onClick={() => setSelectedPrompt(item)} />)}</div>}
             {isLoadingMore && <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div>}
           </div>
         </div>
@@ -459,7 +480,6 @@ function MessageItem({ role, content, onShare, mode }) {
   const isImageMode = mode === "image";
   const [copied, setCopied] = useState(false);
   
-  // 通用复制 (用于 Chat/Code 模式)
   const handleGenericCopy = () => {
     navigator.clipboard.writeText(content);
     setCopied(true);
@@ -477,10 +497,8 @@ function MessageItem({ role, content, onShare, mode }) {
           </>) : <div className="whitespace-pre-wrap font-medium">{content}</div>}
         </div>
         
-        {/* 修复：无条件显示底部按钮栏 (只要有内容) */}
         {isAi && content && (
           <div className="flex items-center gap-2 pl-2 animate-in fade-in duration-500">
-            {/* 只有非图片模式才显示这个通用复制，图片模式已经有内部复制了 */}
             {!isImageMode && (
               <button onClick={handleGenericCopy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border bg-white text-slate-500 border-slate-200 hover:text-slate-900">
                 {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
