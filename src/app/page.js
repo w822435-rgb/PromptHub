@@ -4,14 +4,12 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import AuthModal from "@/components/AuthModal";
 import PromptModal from "@/components/PromptModal";
-// 🔥 新增引入：手动发布组件
-import ManualPublishModal from "@/components/ManualPublishModal"; 
+import ManualPublishModal from "@/components/ManualPublishModal";
 import {
-  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare, Star, PlusCircle
+  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare, Star, PlusCircle, Bell, Edit2
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
-// 辅助函数：格式化点赞数
 const formatLikes = (count) => {
   if (!count || count <= 0) return 0;
   if (count > 99) return "99+";
@@ -22,16 +20,23 @@ export default function Home() {
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState(null);
-  
-  // 🔥 新增状态：控制发布弹窗显示
   const [showPublishModal, setShowPublishModal] = useState(false);
 
+  // 导航与分页状态
   const [mode, setMode] = useState("landing");
   const [profileTab, setProfileTab] = useState("created");
   const [selectedCategory, setSelectedCategory] = useState("全部");
+  const [page, setPage] = useState(0); // 当前页码
+  const [hasMore, setHasMore] = useState(true); // 是否还有更多数据
+
+  // 消息通知状态
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // 修改用户名状态
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
 
   const [generationMode, setGenerationMode] = useState("chat"); 
-
   const [userInput, setUserInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -41,31 +46,116 @@ export default function Home() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const PAGE_SIZE = 24; // 每次加载24个
 
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user || null);
+      if (session?.user) {
+          fetchUnreadNotifications(session.user.id);
+          setNewUsername(session.user.user_metadata?.full_name || "");
+      }
     };
     checkUser();
+    
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
+      if (session?.user) {
+          fetchUnreadNotifications(session.user.id);
+          setNewUsername(session.user.user_metadata?.full_name || "");
+      }
       if (!session?.user && mode === 'profile') setMode('landing');
     });
+    
     return () => authListener.subscription.unsubscribe();
   }, []);
 
+  // 监听分类变化，重置分页
   useEffect(() => {
-    if (mode === 'landing') fetchPublicPrompts();
+    if (mode === 'landing') {
+      setPage(0);
+      setHasMore(true);
+      fetchPublicPrompts(0, true); // true 表示重置列表
+    }
   }, [selectedCategory, mode]);
 
-  const fetchPublicPrompts = async () => {
+  // 获取未读消息数
+  const fetchUnreadNotifications = async (userId) => {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('is_read', false);
+      if (!error) setUnreadCount(count || 0);
+  };
+
+  // 标记消息已读
+  const markNotificationsAsRead = async () => {
+      if (!user) return;
+      await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id);
+      setUnreadCount(0);
+  };
+
+  // 切换到个人中心时，标记已读
+  const handleSwitchToProfile = () => {
+      setMode("profile");
+      markNotificationsAsRead();
+  };
+
+  // 修改用户名
+  const handleUpdateUsername = async () => {
+      if (!newUsername.trim()) return;
+      const { error } = await supabase.auth.updateUser({
+          data: { full_name: newUsername }
+      });
+      
+      if (!error) {
+          // 同步更新 profiles 表 (如果有的话)
+          await supabase.from('profiles').update({ username: newUsername }).eq('id', user.id);
+          alert("用户名修改成功！");
+          setIsEditingName(false);
+          // 刷新本地 user 状态
+          const { data: { session } } = await supabase.auth.getSession();
+          setUser(session?.user);
+      } else {
+          alert("修改失败：" + error.message);
+      }
+  };
+
+  // 加载公共广场数据 (支持分页)
+  const fetchPublicPrompts = async (pageIndex, isReset = false) => {
     setIsLoadingMore(true);
-    let query = supabase.from('prompts').select('*, profiles(username, avatar_url)').eq('is_public', true).order('created_at', { ascending: false }).limit(50);
+    const from = pageIndex * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    let query = supabase
+        .from('prompts')
+        .select('*, profiles(username, avatar_url)')
+        .eq('is_public', true)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
     if (selectedCategory !== "全部") query = query.eq('category', selectedCategory);
+    
     const { data, error } = await query;
-    if (!error && data) setPublicPrompts(data);
+    
+    if (!error && data) {
+        if (data.length < PAGE_SIZE) setHasMore(false); // 没有更多了
+        if (isReset) {
+            setPublicPrompts(data);
+        } else {
+            setPublicPrompts(prev => [...prev, ...data]);
+        }
+    }
     setIsLoadingMore(false);
+  };
+
+  // 加载更多按钮点击
+  const handleLoadMore = () => {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchPublicPrompts(nextPage, false);
   };
 
   const fetchProfileData = async () => {
@@ -95,8 +185,19 @@ export default function Home() {
       await supabase.from('prompt_likes').delete().eq('user_id', user.id).eq('prompt_id', prompt.id);
       newLikesCount = Math.max(0, (prompt.likes || 0) - 1);
     } else {
+      // 1. 插入点赞记录
       await supabase.from('prompt_likes').insert({ user_id: user.id, prompt_id: prompt.id });
       newLikesCount = (prompt.likes || 0) + 1;
+
+      // 2. 插入通知 (如果不是自己给自己点赞)
+      if (prompt.author_id !== user.id) {
+          await supabase.from('notifications').insert({
+              user_id: prompt.author_id, // 接收者
+              actor_id: user.id,         // 触发者
+              prompt_id: prompt.id,
+              type: 'like'
+          });
+      }
     }
 
     const { error } = await supabase.from('prompts').update({ likes: newLikesCount }).eq('id', prompt.id);
@@ -152,7 +253,9 @@ export default function Home() {
       alert(`发布成功！已归类为【${categoryInput}】🎉`);
       setMode("landing");
       setSelectedCategory("全部"); 
-      fetchPublicPrompts();
+      // 重置分页并刷新
+      setPage(0);
+      fetchPublicPrompts(0, true);
     } else {
       alert("发布失败：" + error.message);
     }
@@ -199,13 +302,13 @@ export default function Home() {
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} onLoginSuccess={setUser} />
       <PromptModal prompt={selectedPrompt} isOpen={!!selectedPrompt} onClose={() => setSelectedPrompt(null)} onLike={handleLike} />
       
-      {/* 🔥 新增：手动发布弹窗 */}
       <ManualPublishModal 
         isOpen={showPublishModal} 
         onClose={() => setShowPublishModal(false)} 
         user={user} 
         onSuccess={() => {
-          fetchPublicPrompts();
+          setPage(0);
+          fetchPublicPrompts(0, true);
           setMode("landing");
         }} 
       />
@@ -222,7 +325,6 @@ export default function Home() {
             </button>
             <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
             
-            {/* 🔥 新增：手动发布按钮 (只有登录后显示) */}
             {user && (
               <button 
                 onClick={() => setShowPublishModal(true)} 
@@ -234,9 +336,19 @@ export default function Home() {
             )}
 
             {user ? (
-              <div className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 pr-2 py-1 pl-1 rounded-full transition-all border border-transparent hover:border-slate-200" onClick={() => setMode("profile")}>
-                <img src={user.user_metadata?.avatar_url} className="w-8 h-8 rounded-full border border-slate-200" />
-                <span className="text-sm font-bold text-slate-700 hidden sm:block max-w-[100px] truncate">{user.user_metadata?.full_name}</span>
+              <div className="flex items-center gap-3 cursor-pointer" onClick={handleSwitchToProfile}>
+                <div className="relative">
+                    <div className="flex items-center gap-2 hover:bg-slate-50 pr-2 py-1 pl-1 rounded-full transition-all border border-transparent hover:border-slate-200">
+                        <img src={user.user_metadata?.avatar_url} className="w-8 h-8 rounded-full border border-slate-200" />
+                        <span className="text-sm font-bold text-slate-700 hidden sm:block max-w-[100px] truncate">{user.user_metadata?.full_name}</span>
+                    </div>
+                    {/* 🔴 红点通知 */}
+                    {unreadCount > 0 && (
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-bold">
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                        </div>
+                    )}
+                </div>
               </div>
             ) : (
               <button onClick={() => setShowAuthModal(true)} className="text-sm font-medium px-5 py-2 rounded-full border border-slate-200 hover:border-black hover:bg-black hover:text-white transition-all">登录 / 注册</button>
@@ -250,8 +362,30 @@ export default function Home() {
           <div className="flex flex-col md:flex-row items-start gap-8 mb-12">
             <div className="w-full md:w-64 flex flex-col items-center bg-slate-50 p-8 rounded-3xl border border-slate-100 text-center">
               <img src={user.user_metadata?.avatar_url} className="w-24 h-24 rounded-full border-4 border-white shadow-lg mb-4" />
-              <h2 className="text-xl font-black text-slate-900 mb-1">{user.user_metadata?.full_name}</h2>
-              <button onClick={async () => { await supabase.auth.signOut(); setUser(null); setMode("landing"); }} className="flex items-center gap-2 text-slate-400 hover:text-red-500 text-sm font-medium transition-colors"><LogOut className="w-4 h-4" /> 退出登录</button>
+              
+              {/* 修改用户名区域 */}
+              {isEditingName ? (
+                  <div className="flex items-center gap-2 mb-2 w-full">
+                      <input 
+                        className="w-full text-sm p-1 border border-slate-300 rounded" 
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        autoFocus
+                      />
+                      <button onClick={handleUpdateUsername} className="text-xs bg-black text-white px-2 py-1 rounded">确定</button>
+                      <button onClick={() => setIsEditingName(false)} className="text-xs text-slate-400">取消</button>
+                  </div>
+              ) : (
+                  <div className="flex items-center gap-2 mb-1 justify-center group">
+                    <h2 className="text-xl font-black text-slate-900">{user.user_metadata?.full_name}</h2>
+                    <Edit2 
+                        className="w-4 h-4 text-slate-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity hover:text-blue-500" 
+                        onClick={() => setIsEditingName(true)}
+                    />
+                  </div>
+              )}
+
+              <button onClick={async () => { await supabase.auth.signOut(); setUser(null); setMode("landing"); }} className="flex items-center gap-2 text-slate-400 hover:text-red-500 text-sm font-medium transition-colors mt-2"><LogOut className="w-4 h-4" /> 退出登录</button>
             </div>
             <div className="flex-1 w-full">
                <div className="flex items-center gap-6 border-b border-slate-100 mb-6">
@@ -327,9 +461,31 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            {/* 🔥 Grid 布局确认：使用 grid-cols-4 保证整齐排列 */}
-            {publicPrompts.length === 0 && !isLoadingMore ? <div className="text-center py-24 bg-slate-50 rounded-3xl border border-slate-100 border-dashed"><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-400"><Search className="w-6 h-6" /></div><p className="text-slate-500 font-medium">在“{selectedCategory}”分类下暂无内容...🚀</p></div></div> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">{publicPrompts.map((item) => <PromptCard key={item.id} item={item} onClick={() => setSelectedPrompt(item)} />)}</div>}
-            {isLoadingMore && <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div>}
+            
+            {publicPrompts.length === 0 && !isLoadingMore ? (
+                <div className="text-center py-24 bg-slate-50 rounded-3xl border border-slate-100 border-dashed">
+                    <div className="flex flex-col items-center gap-3"><div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-400"><Search className="w-6 h-6" /></div><p className="text-slate-500 font-medium">在“{selectedCategory}”分类下暂无内容...🚀</p></div>
+                </div>
+            ) : (
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {publicPrompts.map((item) => <PromptCard key={item.id} item={item} onClick={() => setSelectedPrompt(item)} />)}
+                    </div>
+                    {/* 👇 加载更多按钮 */}
+                    {hasMore && (
+                        <div className="flex justify-center mt-12">
+                             <button 
+                                onClick={handleLoadMore} 
+                                disabled={isLoadingMore}
+                                className="px-8 py-3 bg-white border border-slate-200 rounded-full text-slate-600 font-bold hover:bg-slate-50 hover:text-black transition-all shadow-sm flex items-center gap-2"
+                             >
+                                 {isLoadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4 rotate-180" />}
+                                 {isLoadingMore ? "正在加载..." : "加载更多精彩内容"}
+                             </button>
+                        </div>
+                    )}
+                </>
+            )}
           </div>
         </div>
       )}
@@ -399,7 +555,7 @@ function PromptCard({ item, onClick }) {
              {(() => {
                try {
                  const json = JSON.parse(item.content);
-                 return json.chinese_structure?.["主体"] || json.english_structure?.subject || "点击查看详情";
+                 return json.chinese_structure?.["主体"] || json.english_structure?.subject || item.content;
                } catch (e) {
                  return item.description || item.content;
                }
