@@ -10,8 +10,12 @@ const START_FROM_INDEX = 0;
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 // 确保填入正确的 service_role key
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidnVkeHdib3d1dmZzZHVmZnFuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjA0MzY5NiwiZXhwIjoyMDgxNjE5Njk2fQ.vE7NWmuoLEvzUGjJGF9jUiNCH3BLSGSP4S-ETerItKY";
-
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "process.env.SUPABASE_SERVICE_ROLE_KEY";
+// 如果读取不到，就让程序报错，提醒你去配环境变量，而不是硬编码
+if (!SUPABASE_SERVICE_KEY) {
+    console.error("❌ 错误：未找到 SUPABASE_SERVICE_ROLE_KEY，请检查 .env.local 文件");
+    process.exit(1);
+}
 // 你的用户ID
 const AUTHOR_ID = "4790e8c7-69c1-41e2-b24f-2b66e31d6249"; 
 
