@@ -111,11 +111,9 @@ export default function Home() {
       });
       
       if (!error) {
-          // 同步更新 profiles 表 (如果有的话)
           await supabase.from('profiles').update({ username: newUsername }).eq('id', user.id);
           alert("用户名修改成功！");
           setIsEditingName(false);
-          // 刷新本地 user 状态
           const { data: { session } } = await supabase.auth.getSession();
           setUser(session?.user);
       } else {
@@ -123,7 +121,7 @@ export default function Home() {
       }
   };
 
-  // 加载公共广场数据 (支持分页)
+  // 加载公共广场数据
   const fetchPublicPrompts = async (pageIndex, isReset = false) => {
     setIsLoadingMore(true);
     const from = pageIndex * PAGE_SIZE;
@@ -151,7 +149,6 @@ export default function Home() {
     setIsLoadingMore(false);
   };
 
-  // 加载更多按钮点击
   const handleLoadMore = () => {
       const nextPage = page + 1;
       setPage(nextPage);
@@ -185,15 +182,12 @@ export default function Home() {
       await supabase.from('prompt_likes').delete().eq('user_id', user.id).eq('prompt_id', prompt.id);
       newLikesCount = Math.max(0, (prompt.likes || 0) - 1);
     } else {
-      // 1. 插入点赞记录
       await supabase.from('prompt_likes').insert({ user_id: user.id, prompt_id: prompt.id });
       newLikesCount = (prompt.likes || 0) + 1;
-
-      // 2. 插入通知 (如果不是自己给自己点赞)
       if (prompt.author_id !== user.id) {
           await supabase.from('notifications').insert({
-              user_id: prompt.author_id, // 接收者
-              actor_id: user.id,         // 触发者
+              user_id: prompt.author_id,
+              actor_id: user.id,
               prompt_id: prompt.id,
               type: 'like'
           });
@@ -253,7 +247,6 @@ export default function Home() {
       alert(`发布成功！已归类为【${categoryInput}】🎉`);
       setMode("landing");
       setSelectedCategory("全部"); 
-      // 重置分页并刷新
       setPage(0);
       fetchPublicPrompts(0, true);
     } else {
@@ -342,7 +335,6 @@ export default function Home() {
                         <img src={user.user_metadata?.avatar_url} className="w-8 h-8 rounded-full border border-slate-200" />
                         <span className="text-sm font-bold text-slate-700 hidden sm:block max-w-[100px] truncate">{user.user_metadata?.full_name}</span>
                     </div>
-                    {/* 🔴 红点通知 */}
                     {unreadCount > 0 && (
                         <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-bold">
                             {unreadCount > 9 ? '9+' : unreadCount}
@@ -363,7 +355,6 @@ export default function Home() {
             <div className="w-full md:w-64 flex flex-col items-center bg-slate-50 p-8 rounded-3xl border border-slate-100 text-center">
               <img src={user.user_metadata?.avatar_url} className="w-24 h-24 rounded-full border-4 border-white shadow-lg mb-4" />
               
-              {/* 修改用户名区域 */}
               {isEditingName ? (
                   <div className="flex items-center gap-2 mb-2 w-full">
                       <input 
@@ -471,7 +462,6 @@ export default function Home() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {publicPrompts.map((item) => <PromptCard key={item.id} item={item} onClick={() => setSelectedPrompt(item)} />)}
                     </div>
-                    {/* 👇 加载更多按钮 */}
                     {hasMore && (
                         <div className="flex justify-center mt-12">
                              <button 
@@ -499,11 +489,54 @@ export default function Home() {
               <div ref={messagesEndRef} />
             </div>
           </div>
+          {/* 🔥 核心修改：升级底部输入栏 */}
           <div className="fixed bottom-0 w-full bg-gradient-to-t from-white via-white to-transparent pt-12 pb-8 px-4 z-40">
             <div className="max-w-3xl mx-auto relative">
-              <div className={`relative flex items-end bg-white border border-slate-200 rounded-3xl shadow-xl transition-all duration-300 ${loading ? "opacity-80 cursor-wait" : "hover:border-slate-300 ring-4 ring-slate-50"}`}>
-                <textarea value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleOptimize())} disabled={loading} placeholder={`[${generationMode === 'chat' ? '对话' : generationMode === 'image' ? '绘画' : '编程'}模式] 继续输入...`} className="w-full max-h-[150px] py-4 pl-5 pr-14 bg-transparent border-none outline-none resize-none text-slate-800 placeholder:text-slate-400 text-base leading-relaxed no-scrollbar" rows={1} style={{ height: "auto", minHeight: "56px" }} />
-                <button onClick={() => handleOptimize()} disabled={!userInput.trim() || loading} className="absolute right-2 bottom-2 p-2 rounded-xl bg-black text-white"><ArrowUp className="w-5 h-5" /></button>
+              <div className={`relative flex flex-col bg-white border border-slate-200 rounded-3xl shadow-xl transition-all duration-300 ${loading ? "opacity-80 cursor-wait" : "hover:border-slate-300 ring-4 ring-slate-50"}`}>
+                
+                {/* 1. 输入框区域 */}
+                <div className="relative w-full">
+                   <textarea 
+                     value={userInput} 
+                     onChange={(e) => setUserInput(e.target.value)} 
+                     onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleOptimize())} 
+                     disabled={loading} 
+                     // 💡 智能 Prompt 提示，随模式变化
+                     placeholder={
+                       generationMode === 'image' ? "例如：生成一只赛博朋克的猫，霓虹灯光..." :
+                       generationMode === 'code' ? "例如：帮我写一个 Python 爬虫..." :
+                       "例如：我想咨询一下感冒了该怎么办..."
+                     }
+                     className="w-full max-h-[150px] py-4 pl-5 pr-14 bg-transparent border-none outline-none resize-none text-slate-800 placeholder:text-slate-400 text-base leading-relaxed no-scrollbar" 
+                     rows={1} 
+                     style={{ height: "auto", minHeight: "56px" }} 
+                   />
+                   <button onClick={() => handleOptimize()} disabled={!userInput.trim() || loading} className="absolute right-2 bottom-2 p-2 rounded-xl bg-black text-white hover:bg-slate-800 transition-colors"><ArrowUp className="w-5 h-5" /></button>
+                </div>
+
+                {/* 2. 模式切换按钮组 (新功能) */}
+                <div className="flex items-center gap-1 p-2 pl-4 border-t border-slate-50 bg-slate-50/30 rounded-b-3xl">
+                  {[
+                    { id: "chat", label: "对话", icon: MessageSquare },
+                    { id: "image", label: "绘画", icon: ImageIcon },
+                    { id: "code", label: "编程", icon: Code },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setGenerationMode(m.id)}
+                      className={`
+                        flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-200
+                        ${generationMode === m.id 
+                          ? "bg-white text-black shadow-sm border border-slate-200/60" 
+                          : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/40"}
+                      `}
+                    >
+                      <m.icon className="w-3.5 h-3.5" />
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+
               </div>
             </div>
           </div>
@@ -593,7 +626,10 @@ function StructuredImagePrompt({ content }) {
       {english_structure && (
         <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200/60">
-            <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500"></span>English Version (For Midjourney/SD)</h4>
+            <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+              PROMPT STRUCTURE
+            </h4>
             <SingleCopyButton text={Object.values(english_structure).filter(Boolean).join(", ")} />
           </div>
           <div className="flex flex-col gap-2">
@@ -606,7 +642,10 @@ function StructuredImagePrompt({ content }) {
       {chinese_structure && (
         <div className="bg-yellow-50/50 rounded-2xl p-4 border border-yellow-100/60">
            <div className="flex items-center justify-between mb-3 pb-2 border-b border-yellow-200/60">
-            <h4 className="text-sm font-bold text-yellow-800 uppercase tracking-wider flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-500"></span>中文版 (参考译文)</h4>
+            <h4 className="text-sm font-bold text-yellow-800 uppercase tracking-wider flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+              ENGLISH VERSION
+            </h4>
             <SingleCopyButton text={Object.values(chinese_structure).filter(Boolean).join(", ")} label="复制中文" />
           </div>
           <div className="flex flex-col gap-2">
@@ -648,7 +687,10 @@ function MessageItem({ role, content, onShare, mode }) {
       <div className="flex flex-col gap-2 max-w-[85%]">
         <div className={`relative px-6 py-5 rounded-3xl text-[15px] leading-7 shadow-sm ${isAi ? "bg-white border border-slate-100 text-slate-800" : "bg-slate-50 text-slate-900 border border-slate-200"}`}>
           {isAi ? ( <> 
-            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 select-none"><Zap className="w-4 h-4 text-amber-500 fill-amber-500" /><span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{isImageMode ? "Midjourney Prompt Structure" : "Optimized Prompt"}</span></div> 
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 select-none">
+                <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{isImageMode ? "PROMPT STRUCTURE" : "Optimized Prompt"}</span>
+            </div> 
             {isImageMode ? (<StructuredImagePrompt content={content} />) : (<div className="markdown-body prose prose-slate max-w-none"><ReactMarkdown>{content}</ReactMarkdown></div>)} 
           </>) : <div className="whitespace-pre-wrap font-medium">{content}</div>}
         </div>
