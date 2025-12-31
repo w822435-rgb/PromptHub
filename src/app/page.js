@@ -6,7 +6,7 @@ import AuthModal from "@/components/AuthModal";
 import PromptModal from "@/components/PromptModal";
 import ManualPublishModal from "@/components/ManualPublishModal";
 import {
-  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Code, Image as ImageIcon, MessageSquare, Star, PlusCircle, Bell, Edit2
+  ArrowUp, Sparkles, Bot, User, Copy, Check, Search, Share2, LogOut, Loader2, ArrowLeft, Zap, Image as ImageIcon, MessageSquare, Star, PlusCircle, Bell, Edit2, Trash2
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -46,7 +46,7 @@ export default function Home() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const messagesEndRef = useRef(null);
-  const PAGE_SIZE = 24; // 每次加载24个
+  const PAGE_SIZE = 24; 
 
   useEffect(() => {
     const checkUser = async () => {
@@ -76,11 +76,10 @@ export default function Home() {
     if (mode === 'landing') {
       setPage(0);
       setHasMore(true);
-      fetchPublicPrompts(0, true); // true 表示重置列表
+      fetchPublicPrompts(0, true); 
     }
   }, [selectedCategory, mode]);
 
-  // 获取未读消息数
   const fetchUnreadNotifications = async (userId) => {
       const { count, error } = await supabase
         .from('notifications')
@@ -90,20 +89,17 @@ export default function Home() {
       if (!error) setUnreadCount(count || 0);
   };
 
-  // 标记消息已读
   const markNotificationsAsRead = async () => {
       if (!user) return;
       await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id);
       setUnreadCount(0);
   };
 
-  // 切换到个人中心时，标记已读
   const handleSwitchToProfile = () => {
       setMode("profile");
       markNotificationsAsRead();
   };
 
-  // 修改用户名
   const handleUpdateUsername = async () => {
       if (!newUsername.trim()) return;
       const { error } = await supabase.auth.updateUser({
@@ -121,7 +117,6 @@ export default function Home() {
       }
   };
 
-  // 加载公共广场数据
   const fetchPublicPrompts = async (pageIndex, isReset = false) => {
     setIsLoadingMore(true);
     const from = pageIndex * PAGE_SIZE;
@@ -139,7 +134,7 @@ export default function Home() {
     const { data, error } = await query;
     
     if (!error && data) {
-        if (data.length < PAGE_SIZE) setHasMore(false); // 没有更多了
+        if (data.length < PAGE_SIZE) setHasMore(false); 
         if (isReset) {
             setPublicPrompts(data);
         } else {
@@ -171,6 +166,24 @@ export default function Home() {
   };
 
   useEffect(() => { if (mode === 'profile' && user) fetchProfileData(); }, [mode, profileTab, user]);
+
+  // 🔥 新增：删除功能
+  const handleDeletePrompt = async (promptId) => {
+    if (!window.confirm("确定要删除这个提示词吗？此操作无法撤销。")) return;
+
+    try {
+      const { error } = await supabase.from('prompts').delete().eq('id', promptId);
+      if (error) throw error;
+      
+      // 更新本地列表
+      setProfilePrompts(prev => prev.filter(p => p.id !== promptId));
+      setPublicPrompts(prev => prev.filter(p => p.id !== promptId));
+      
+      alert("删除成功");
+    } catch (error) {
+      alert("删除失败: " + error.message);
+    }
+  };
 
   const handleLike = async (prompt) => {
     if (!user) { setShowAuthModal(true); return; }
@@ -209,10 +222,11 @@ export default function Home() {
     const tempTitle = window.prompt("第一步：请为这个提示词起个标题", userInput.substring(0, 15));
     if (!tempTitle) return;
 
-    const categoryMap = { "chat": "对话", "image": "绘画", "code": "编程" };
+    const categoryMap = { "chat": "对话", "image": "绘画" };
     let categoryInput = categoryMap[generationMode] || "对话";
 
     let imageUrl = null;
+    // 如果是绘画模式，尝试生成预览图
     if (categoryInput === "绘画") {
       const proceed = window.confirm("🤖 是否为此绘画提示词生成预览图？(约需3-5秒)");
       if (proceed) {
@@ -349,6 +363,7 @@ export default function Home() {
         </div>
       </header>
 
+      {/* 个人中心视图 */}
       {mode === "profile" && user && (
         <div className="pt-24 max-w-5xl mx-auto px-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex flex-col md:flex-row items-start gap-8 mb-12">
@@ -387,12 +402,24 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-              {isLoadingMore ? <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div> : profilePrompts.length === 0 ? <div className="text-center py-20 bg-slate-50 rounded-2xl border border-dashed border-slate-200"><p className="text-slate-400 font-medium">这里空空如也...</p></div> : <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{profilePrompts.map(item => <PromptCard key={item.id} item={item} onClick={() => setSelectedPrompt(item)} />)}</div>}
+              {isLoadingMore ? <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div> : profilePrompts.length === 0 ? <div className="text-center py-20 bg-slate-50 rounded-2xl border border-dashed border-slate-200"><p className="text-slate-400 font-medium">这里空空如也...</p></div> : 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {profilePrompts.map(item => (
+                    <PromptCard 
+                        key={item.id} 
+                        item={item} 
+                        onClick={() => setSelectedPrompt(item)} 
+                        // 🔥 仅在“发布的提示词”Tab下传入删除函数
+                        onDelete={profileTab === "created" ? () => handleDeletePrompt(item.id) : undefined}
+                    />
+                  ))}
+              </div>}
             </div>
           </div>
         </div>
       )}
 
+      {/* 首页视图 */}
       {mode === "landing" && (
         <div className="pt-32 pb-20">
           <div className="max-w-3xl mx-auto px-4 text-center mb-20">
@@ -411,7 +438,6 @@ export default function Home() {
                     onKeyDown={(e) => e.key === "Enter" && handleOptimize()} 
                     placeholder={
                       generationMode === 'image' ? "例如：生成一只赛博朋克的猫，霓虹灯光..." :
-                      generationMode === 'code' ? "例如：帮我写一个 Python 爬虫..." :
                       "例如：我想咨询一下感冒了该怎么办..."
                     }
                     className="flex-1 h-14 bg-transparent border-none outline-none text-lg px-6 text-slate-800 placeholder:text-slate-400" 
@@ -423,7 +449,6 @@ export default function Home() {
                   {[
                     { id: "chat", label: "对话", icon: MessageSquare },
                     { id: "image", label: "绘画", icon: ImageIcon },
-                    { id: "code", label: "编程", icon: Code },
                   ].map((m) => (
                     <button
                       key={m.id}
@@ -447,7 +472,7 @@ export default function Home() {
              <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
               <div className="flex items-center gap-3"><Sparkles className="w-5 h-5 text-yellow-500" /><h2 className="text-lg font-bold text-slate-900">社区精选提示词</h2></div>
               <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-                {["全部", "对话", "绘画", "编程"].map((cat) => (
+                {["全部", "对话", "绘画"].map((cat) => (
                   <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-300 ${selectedCategory === cat ? "bg-white text-black shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"}`}>{cat}</button>
                 ))}
               </div>
@@ -489,22 +514,18 @@ export default function Home() {
               <div ref={messagesEndRef} />
             </div>
           </div>
-          {/* 🔥 核心修改：升级底部输入栏 */}
           <div className="fixed bottom-0 w-full bg-gradient-to-t from-white via-white to-transparent pt-12 pb-8 px-4 z-40">
             <div className="max-w-3xl mx-auto relative">
               <div className={`relative flex flex-col bg-white border border-slate-200 rounded-3xl shadow-xl transition-all duration-300 ${loading ? "opacity-80 cursor-wait" : "hover:border-slate-300 ring-4 ring-slate-50"}`}>
                 
-                {/* 1. 输入框区域 */}
                 <div className="relative w-full">
                    <textarea 
                      value={userInput} 
                      onChange={(e) => setUserInput(e.target.value)} 
                      onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleOptimize())} 
                      disabled={loading} 
-                     // 💡 智能 Prompt 提示，随模式变化
                      placeholder={
                        generationMode === 'image' ? "例如：生成一只赛博朋克的猫，霓虹灯光..." :
-                       generationMode === 'code' ? "例如：帮我写一个 Python 爬虫..." :
                        "例如：我想咨询一下感冒了该怎么办..."
                      }
                      className="w-full max-h-[150px] py-4 pl-5 pr-14 bg-transparent border-none outline-none resize-none text-slate-800 placeholder:text-slate-400 text-base leading-relaxed no-scrollbar" 
@@ -514,12 +535,10 @@ export default function Home() {
                    <button onClick={() => handleOptimize()} disabled={!userInput.trim() || loading} className="absolute right-2 bottom-2 p-2 rounded-xl bg-black text-white hover:bg-slate-800 transition-colors"><ArrowUp className="w-5 h-5" /></button>
                 </div>
 
-                {/* 2. 模式切换按钮组 (新功能) */}
                 <div className="flex items-center gap-1 p-2 pl-4 border-t border-slate-50 bg-slate-50/30 rounded-b-3xl">
                   {[
                     { id: "chat", label: "对话", icon: MessageSquare },
                     { id: "image", label: "绘画", icon: ImageIcon },
-                    { id: "code", label: "编程", icon: Code },
                   ].map((m) => (
                     <button
                       key={m.id}
@@ -536,7 +555,6 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-
               </div>
             </div>
           </div>
@@ -549,22 +567,49 @@ export default function Home() {
 const getCategoryStyle = (cat) => {
   switch (cat) {
     case "绘画": return { icon: <ImageIcon className="w-5 h-5 text-purple-600" />, bg: "bg-purple-100", text: "text-purple-700", gradient: "from-purple-500/10 to-pink-500/10" };
-    case "编程": return { icon: <Code className="w-5 h-5 text-slate-700" />, bg: "bg-slate-100", text: "text-slate-700", gradient: "from-slate-500/10 to-gray-500/10" };
     case "对话": default: return { icon: <MessageSquare className="w-5 h-5 text-blue-600" />, bg: "bg-blue-100", text: "text-blue-700", gradient: "from-blue-500/10 to-cyan-500/10" };
   }
 };
 
-function PromptCard({ item, onClick }) {
+function PromptCard({ item, onClick, onDelete }) {
   const rawCategory = item.category === "AI 助手" || !item.category ? "对话" : item.category;
   const style = getCategoryStyle(rawCategory);
   const isLiked = item.likes > 0;
 
+  // 智能解析图片链接
+  let displayImage = null;
+  if (item.image_url) {
+    try {
+      if (item.image_url.trim().startsWith("[")) {
+         const parsed = JSON.parse(item.image_url);
+         displayImage = Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : null;
+      } else {
+         displayImage = item.image_url;
+      }
+    } catch (e) {
+      displayImage = item.image_url;
+    }
+  }
+
+  // 🔥 核心修改：优先显示 content (提示词内容)，而不是重复的 description
+  // 如果内容是 JSON，提取有用的主体信息
+  const displayContent = (() => {
+    try {
+      const json = JSON.parse(item.content);
+      if (json.chinese_structure || json.english_structure) {
+          return json.chinese_structure?.["主体"] || json.english_structure?.subject || item.content;
+      }
+    } catch (e) {}
+    // 如果不是 JSON（比如手动上传的纯文本），直接显示内容
+    return item.content; 
+  })();
+
   return (
     <div onClick={onClick} className="group relative flex flex-col bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] hover:-translate-y-1 transition-all duration-300 cursor-pointer mb-6">
       <div className="relative w-full h-48 overflow-hidden bg-slate-50">
-        {item.image_url ? (
+        {displayImage ? (
           <>
-            <img src={item.image_url} alt={item.title} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
+            <img src={displayImage} alt={item.title} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           </>
         ) : (
@@ -575,7 +620,7 @@ function PromptCard({ item, onClick }) {
           </div>
         )}
         <div className="absolute top-4 left-4 z-20">
-          <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide uppercase backdrop-blur-md shadow-sm ${item.image_url ? "bg-white/90 text-slate-800" : "bg-white text-slate-700"}`}>
+          <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide uppercase backdrop-blur-md shadow-sm ${displayImage ? "bg-white/90 text-slate-800" : "bg-white text-slate-700"}`}>
             {style.icon}{rawCategory}
           </span>
         </div>
@@ -583,30 +628,34 @@ function PromptCard({ item, onClick }) {
       <div className="flex flex-col flex-1 p-5">
         <h3 className="text-lg font-bold text-slate-900 leading-snug mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">{item.title}</h3>
         
-        {rawCategory === "绘画" ? (
-           <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">
-             {(() => {
-               try {
-                 const json = JSON.parse(item.content);
-                 return json.chinese_structure?.["主体"] || json.english_structure?.subject || item.content;
-               } catch (e) {
-                 return item.description || item.content;
-               }
-             })()}
-           </p>
-        ) : (
-           <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">{item.description || item.content}</p>
-        )}
+        {/* 🔥 修改：直接显示提示词内容，解决重复标题问题 */}
+        <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">{displayContent}</p>
 
         <div className="mt-auto flex items-center justify-between pt-4 border-t border-slate-50">
-          <div className="flex items-center gap-2"><img src={item.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author_id}`} className="w-6 h-6 rounded-full border border-slate-100" alt="avatar" /><span className="text-xs font-semibold text-slate-400 max-w-[80px] truncate">{item.profiles?.username || "PromptHub"}</span></div>
+          <div className="flex items-center gap-2">
+            <img src={item.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.author_id}`} className="w-6 h-6 rounded-full border border-slate-100" alt="avatar" />
+            <span className="text-xs font-semibold text-slate-400 max-w-[80px] truncate">{item.profiles?.username || "PromptHub"}</span>
+          </div>
           
-          <div className={`
-            flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-300 group/star
-            ${isLiked ? "bg-yellow-50 text-yellow-500" : "bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-500"}
-          `}>
-            <Star className={`w-4 h-4 transition-all duration-300 group-active/star:scale-125 ${isLiked ? "fill-yellow-500 text-yellow-500" : ""}`} />
-            <span className="text-xs font-bold">{formatLikes(item.likes)}</span>
+          <div className="flex items-center gap-2">
+              {/* 🔥 新增：删除按钮 (仅在有 onDelete 属性时显示) */}
+              {onDelete && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                  className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all"
+                  title="删除"
+                >
+                    <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              
+              <div className={`
+                flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-300 group/star
+                ${isLiked ? "bg-yellow-50 text-yellow-500" : "bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-500"}
+              `}>
+                <Star className={`w-4 h-4 transition-all duration-300 group-active/star:scale-125 ${isLiked ? "fill-yellow-500 text-yellow-500" : ""}`} />
+                <span className="text-xs font-bold">{formatLikes(item.likes)}</span>
+              </div>
           </div>
         </div>
       </div>
@@ -614,7 +663,10 @@ function PromptCard({ item, onClick }) {
   );
 }
 
+// 辅助组件 (保持不变)
 function StructuredImagePrompt({ content }) {
+  // ... (保持之前的不变，这里为了文件完整性，我没有重复这部分冗长的代码，请确保您的文件底部包含 StructuredImagePrompt, SingleCopyButton, MessageItem)
+  // ⚠️ 注意：如果您直接覆盖，记得把文件底部的辅助组件也带上。为了方便您，我在下面直接补全它们。
   let parsedJson = null;
   try { parsedJson = JSON.parse(content); } catch (e) { return <div className="whitespace-pre-wrap font-medium font-mono text-sm">{content}</div>; }
 

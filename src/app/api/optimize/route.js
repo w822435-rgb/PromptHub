@@ -30,68 +30,38 @@ export async function POST(request) {
     let temperature = 0.7;
     let systemPrompt = "";
 
-    // --- 1. 绘画模式 (极客风 + 视觉冲击) ---
+    // --- 1. 绘画模式 (Nano Banana Pro 深度优化版) ---
     if (mode === 'image') {
-      temperature = 1.0; // 高创造性
+      temperature = 1.0; 
       systemPrompt = `
-You are a **Visionary Art Director**. 
-Your goal is to create a **"Photorealistic Masterpiece"** prompt.
+You are a **Prompt Specialist for Stable Diffusion (Nano Banana Pro model)**.
+Your goal is to convert user descriptions into high-quality AI art prompts optimized for SDXL/Pony based models.
 
-**STRATEGY:**
-- Don't just describe; **Direct the Camera**. Use terms like "Macro lens", "Volumetric lighting", "Subsurface scattering".
-- **Structure**: Break it down into clear, readable sections.
+**KEY OPTIMIZATION RULES:**
+1. **Format**: Use a mix of **Danbooru tags** (e.g., "1girl, solo") and **Natural Language**.
+2. **Quality Boosters**: **MANDATORY**: The 'art_direction' field MUST start with: "(masterpiece, best quality, 8k, highly detailed),".
+3. **Subject Purity**: The 'subject' field should ONLY describe the main character/object and action. Do NOT put quality tags here.
+4. **Lighting & Camera**: Explicitly state lighting and camera angle.
+5. **No Parameters**: Do NOT output technical parameters like steps or sampler.
 
 **OUTPUT JSON ONLY:**
 {
   "english_structure": {
-    "subject": "...",
-    "art_direction": "...",
-    "lighting_atmosphere": "...",
-    "camera_gear": "...",
-    "parameters": "--ar 16:9 --v 6.0 --stylize 250"
+    "subject": "Subject Description using tags + prose (e.g., 1girl, solo, standing in rain, white shirt)",
+    "art_direction": "(masterpiece, best quality, 8k, highly detailed), Art style (e.g., anime style, realistic, oil painting)",
+    "lighting_atmosphere": "Lighting keywords (e.g., volumetric lighting, neon lights)",
+    "camera_gear": "Camera angle and focus (e.g., wide angle, macro, bokeh)"
   },
   "chinese_structure": {
     "主体": "...",
     "艺术指导": "...",
     "光影氛围": "...",
-    "摄影器材": "...",
-    "参数": "--ar 16:9 --v 6.0 --stylize 250"
+    "摄影器材": "..."
   }
 }
 `;
     } 
-    // --- 2. 编程模式 (架构师风 + 严谨) ---
-    else if (mode === 'code') {
-      temperature = 0.4; // 低温度求稳
-      systemPrompt = `
-You are a **Distinguished Tech Architect**.
-Create a **"Mission-Critical" System Prompt** for a Coding Agent.
-
-**THE WOW FACTOR:**
-The prompt must instruct the AI to perform a **"Tech Stack Audit"** before coding.
-It should look like a terminal output or a technical spec sheet.
-
-**OUTPUT FORMAT (Markdown) in ${targetLanguage}:**
-
-**# 🛡️ SYSTEM ROLE**
-[Senior Architect / Principal Engineer]
-
-**# 🧠 CORE LOGIC**
-1. **Audit**: Analyze request for potential security risks or scalability issues.
-2. **Stack Selection**: Recommend the best library/framework if not specified.
-3. **Implementation**: Production-ready code.
-
-**# ⚙️ INITIALIZATION TRIGGER**
-The AI's first response MUST be structured like this:
-\`\`\`text
-> ANALYZING REQUEST...
-> DETECTED STACK: [Infer stack or ask]
-> POTENTIAL RISKS: [List 1 risk]
-> CONFIRMATION: Shall I proceed with [Option A] or [Option B]?
-\`\`\`
-`;
-    } 
-    // --- 3. 默认对话模式 (🔥 核心升级：智能顾问 + 选项菜单) ---
+    // --- 2. 默认对话模式 (保持原有 CO-STAR + 策略菜单逻辑) ---
     else {
       temperature = 0.8; 
       systemPrompt = `
@@ -104,34 +74,32 @@ Instead of asking open questions ("What do you want?"), the generated AI Agent m
 1.  **Acknowledge** the user's goal with expert insight.
 2.  **Provide a "Menu"** of 3 distinct approaches/styles for the user to pick from.
 3.  **Wait** for the user's choice before generating the full content.
-*This makes the user feel guided by a pro, not quizzed by a bot.*
 
 **LANGUAGE**: Output in **${targetLanguage}**.
 
 **OUTPUT FORMAT (Markdown):**
 
 **# 🎭 ROLE IDENTITY**
-[Define a specific, high-level persona. E.g., "Chief Content Officer"]
+[Define a specific, high-level persona.]
 
 **# 🎯 PRIME OBJECTIVE**
-[What is the ultimate goal? E.g., "Viral Growth", "Deep Analysis"]
+[What is the ultimate goal?]
 
-**# 🧠 COGNITIVE PROCESS (The "Brain")**
-1. **Input Analysis**: Decode user intent.
-2. **Strategy Selection**: Offer 3 distinct strategic paths.
-3. **Execution**: Generate high-quality output based on the chosen path.
+**# 🧠 COGNITIVE PROCESS**
+1. **Input Analysis**
+2. **Strategy Selection**
+3. **Execution**
 
-**# 📋 INITIALIZATION PROTOCOL (The "Wow" Start)**
-(Copy this exactly)
+**# 📋 INITIALIZATION PROTOCOL**
 The AI's first response MUST be a **"Strategy Menu"**:
 "👋 **[Role Name] Online.** I see you want to [User's Goal].
 To get the best result, choose a strategy:
 
 | Option | Style/Focus | Best For... |
 | :--- | :--- | :--- |
-| **A** | [Style 1, e.g., Professional] | [Scenario 1] |
-| **B** | [Style 2, e.g., Viral/Emotional] | [Scenario 2] |
-| **C** | [Style 3, e.g., Data-Driven] | [Scenario 3] |
+| **A** | [Style 1] | [Scenario 1] |
+| **B** | [Style 2] | [Scenario 2] |
+| **C** | [Style 3] | [Scenario 3] |
 
 *Reply with A, B, or C, or tell me your specific requirements.*"
 `;

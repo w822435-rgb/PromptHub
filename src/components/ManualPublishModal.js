@@ -1,153 +1,205 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { X, Loader2, Trash2, Plus, Image as ImageIcon, MessageSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { X, Upload, Image as ImageIcon, Loader2 } from "lucide-react";
 
-export default function ManualPublishModal({ isOpen, onClose, onSuccess, user }) {
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    title: "",
-    content: "", // 这里粘贴你的 Nano Banana 提示词
-    category: "绘画",
-  });
-  const [imageFile, setImageFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
+export default function ManualPublishModal({ isOpen, onClose, user, onSuccess }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [content, setContent] = useState(""); 
+  const [category, setCategory] = useState("绘画"); // 默认改为绘画，方便您测试
+  const [imageFiles, setImageFiles] = useState([]); 
+  const [imagePreviews, setImagePreviews] = useState([]); 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef(null);
 
   if (!isOpen) return null;
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+  const handleImageChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    if (imageFiles.length + files.length > 4) {
+      alert("最多只能上传 4 张图片！");
+      return;
     }
+
+    const MAX_SIZE = 5 * 1024 * 1024; 
+    const validFiles = files.filter(file => {
+      if (file.size > MAX_SIZE) {
+        alert(`图片 ${file.name} 超过了 5MB 限制，已跳过。`);
+        return false;
+      }
+      return true;
+    });
+
+    const newPreviews = validFiles.map(file => URL.createObjectURL(file));
+    setImageFiles(prev => [...prev, ...validFiles]);
+    setImagePreviews(prev => [...prev, ...newPreviews]);
+  };
+
+  const removeImage = (index) => {
+    const newFiles = [...imageFiles];
+    const newPreviews = [...imagePreviews];
+    URL.revokeObjectURL(newPreviews[index]);
+    newFiles.splice(index, 1);
+    newPreviews.splice(index, 1);
+    setImageFiles(newFiles);
+    setImagePreviews(newPreviews);
+  };
+
+  // 🔥 核心修改：更严格的上传逻辑
+  const uploadImages = async () => {
+    if (imageFiles.length === 0) return null;
+
+    const uploadedUrls = [];
+    
+    for (const file of imageFiles) {
+      // 这里的路径很重要，确保不包含特殊字符
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+
+      console.log(`正在上传: ${filePath}`);
+
+      const { data, error: uploadError } = await supabase.storage
+        .from('prompt-images')
+        .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+        });
+
+      if (uploadError) {
+        console.error("Supabase 上传详细错误:", uploadError);
+        // 🔥 直接抛出错误，中断发布流程，让你知道是上传挂了
+        throw new Error(`图片上传失败: ${uploadError.message} (请检查 Supabase Storage Policy)`);
+      }
+
+      const { data: publicData } = supabase.storage.from('prompt-images').getPublicUrl(filePath);
+      uploadedUrls.push(publicData.publicUrl);
+    }
+
+    return uploadedUrls.length > 0 ? JSON.stringify(uploadedUrls) : null;
   };
 
   const handleSubmit = async () => {
-    if (!formData.title || !formData.content || !imageFile || !user) {
-      alert("请填写完整信息并上传图片");
+    if (!title.trim() || !content.trim()) {
+      alert("请至少填写标题和提示词内容");
       return;
     }
-    setLoading(true);
+
+    setIsSubmitting(true);
 
     try {
-      // 1. 上传图片到 Supabase Storage
-      const fileExt = imageFile.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('prompt-images')
-        .upload(filePath, imageFile);
-
-      if (uploadError) throw uploadError;
-
-      // 2. 获取图片公开链接
-      const { data: { publicUrl } } = supabase.storage
-        .from('prompt-images')
-        .getPublicUrl(filePath);
-
-      // 3. 写入数据库
-      // 如果你粘贴的是 JSON 格式，尝试解析一下，保证格式正确；如果是纯文本也兼容
-      let finalContent = formData.content;
-      try {
-          // 尝试美化 JSON 格式（如果用户粘贴的是压缩的 JSON）
-          const json = JSON.parse(formData.content);
-          finalContent = JSON.stringify(json, null, 2);
-      } catch(e) {
-          // 不是 JSON，就按普通文本存
+      // 1. 上传图片
+      let imageUrlString = null;
+      if (imageFiles.length > 0) {
+          imageUrlString = await uploadImages();
       }
 
-      const { error: dbError } = await supabase.from('prompts').insert({
-        title: formData.title,
-        content: finalContent,
-        category: formData.category,
-        author_id: user.id, // 关键：这就是为什么显示是你上传的
-        image_url: publicUrl,
+      // 2. 插入数据库
+      const { error } = await supabase.from('prompts').insert({
+        title,
+        description: description || title,
+        content,
+        category, // 确保这里选的是“绘画”，列表页才会显示大图模式
+        author_id: user.id,
         is_public: true,
+        image_url: imageUrlString, 
         likes: 0
       });
 
-      if (dbError) throw dbError;
+      if (error) throw error;
 
-      alert("发布成功！");
-      onSuccess(); // 刷新列表
-      onClose();   // 关闭弹窗
+      // 重置并关闭
+      setTitle("");
+      setDescription("");
+      setContent("");
+      setImageFiles([]);
+      setImagePreviews([]);
       
-      // 重置表单
-      setFormData({ title: "", content: "", category: "绘画" });
-      setImageFile(null);
-      setPreviewUrl(null);
+      onSuccess(); 
+      onClose();   
 
     } catch (error) {
-      console.error("发布失败:", error);
       alert("发布失败: " + error.message);
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        <div className="flex items-center justify-between p-4 border-b border-slate-100">
-          <h3 className="font-bold text-lg">手动发布作品 (Gemini Pro)</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
-        </div>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         
-        <div className="p-6 space-y-4">
-          {/* 图片上传区 */}
-          <div className="flex justify-center">
-            <label className="relative cursor-pointer group">
-              <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-              <div className={`w-full aspect-video min-w-[300px] rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center transition-all ${previewUrl ? 'border-transparent' : 'hover:border-blue-500 hover:bg-slate-50'}`}>
-                {previewUrl ? (
-                  <img src={previewUrl} className="w-full h-full object-cover rounded-xl" />
-                ) : (
-                  <>
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-2 group-hover:scale-110 transition-transform"><Upload className="w-6 h-6" /></div>
-                    <span className="text-sm text-slate-500 font-medium">点击上传生成的图片</span>
-                  </>
-                )}
-              </div>
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
+          <h2 className="text-lg font-bold text-slate-900">手动发布作品</h2>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700 block">
+              作品预览图 <span className="text-slate-400 font-normal">(最多4张)</span>
             </label>
-          </div>
-
-          <input 
-            className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 outline-none focus:border-black transition-colors font-bold"
-            placeholder="给作品起个标题..."
-            value={formData.title}
-            onChange={e => setFormData({...formData, title: e.target.value})}
-          />
-
-          <textarea 
-            className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 outline-none focus:border-black transition-colors text-sm font-mono h-32 resize-none"
-            placeholder="粘贴提示词 (JSON 或 纯文本)..."
-            value={formData.content}
-            onChange={e => setFormData({...formData, content: e.target.value})}
-          />
-          
-          <div className="flex gap-2">
-              {['绘画', '对话', '编程'].map(cat => (
-                  <button 
-                    key={cat} 
-                    onClick={() => setFormData({...formData, category: cat})}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-bold border ${formData.category === cat ? 'bg-black text-white border-black' : 'bg-white text-slate-500 border-slate-200'}`}
-                  >
-                      {cat}
+            <div className="grid grid-cols-4 gap-4">
+              {imagePreviews.map((src, index) => (
+                <div key={index} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group">
+                  <img src={src} className="w-full h-full object-cover" alt="preview" />
+                  <button onClick={() => removeImage(index)} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-3 h-3" />
                   </button>
+                </div>
               ))}
+              {imageFiles.length < 4 && (
+                <div onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-xl border-2 border-dashed border-slate-200 hover:border-slate-400 hover:bg-slate-50 flex flex-col items-center justify-center cursor-pointer transition-all gap-2 group">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Plus className="w-5 h-5 text-slate-400" />
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">添加图片</span>
+                </div>
+              )}
+            </div>
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" multiple onChange={handleImageChange} />
           </div>
 
-          <button 
-            onClick={handleSubmit} 
-            disabled={loading}
-            className="w-full py-3 bg-black text-white rounded-xl font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
-            {loading ? "正在发布..." : "立即发布到社区"}
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700">标题</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/5 transition-all font-bold" placeholder="给你的提示词起个名字..." />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700">提示词内容</label>
+            <textarea value={content} onChange={(e) => setContent(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/5 transition-all min-h-[150px] font-mono text-sm leading-relaxed resize-none" placeholder="在这里粘贴你的 Prompt..." />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700">分类</label>
+            <div className="flex items-center gap-2">
+              {[{ id: "对话", icon: MessageSquare }, { id: "绘画", icon: ImageIcon }].map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCategory(cat.id)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border ${
+                    category === cat.id ? "bg-black text-white border-black shadow-lg shadow-black/20" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <cat.icon className="w-4 h-4" />
+                  {cat.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+          <button onClick={onClose} className="px-6 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200/50 transition-colors">取消</button>
+          <button onClick={handleSubmit} disabled={isSubmitting} className="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-black hover:bg-slate-800 transition-all shadow-lg shadow-black/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isSubmitting ? "发布中..." : "立即发布到社区"}
           </button>
         </div>
       </div>
