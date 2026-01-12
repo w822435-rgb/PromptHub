@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import Image from "next/image";
 import AuthModal from "@/components/AuthModal";
 import PromptModal from "@/components/PromptModal";
 import ManualPublishModal from "@/components/ManualPublishModal";
@@ -571,6 +572,9 @@ const getCategoryStyle = (cat) => {
   }
 };
 
+// ⚠️ 记得在文件最顶部的 import 区域加上这一行：
+// import Image from "next/image";
+
 function PromptCard({ item, onClick, onDelete }) {
   const rawCategory = item.category === "AI 助手" || !item.category ? "对话" : item.category;
   const style = getCategoryStyle(rawCategory);
@@ -591,8 +595,7 @@ function PromptCard({ item, onClick, onDelete }) {
     }
   }
 
-  // 🔥 核心修改：优先显示 content (提示词内容)，而不是重复的 description
-  // 如果内容是 JSON，提取有用的主体信息
+  // 内容解析
   const displayContent = (() => {
     try {
       const json = JSON.parse(item.content);
@@ -600,7 +603,6 @@ function PromptCard({ item, onClick, onDelete }) {
           return json.chinese_structure?.["主体"] || json.english_structure?.subject || item.content;
       }
     } catch (e) {}
-    // 如果不是 JSON（比如手动上传的纯文本），直接显示内容
     return item.content; 
   })();
 
@@ -609,7 +611,16 @@ function PromptCard({ item, onClick, onDelete }) {
       <div className="relative w-full h-48 overflow-hidden bg-slate-50">
         {displayImage ? (
           <>
-            <img src={displayImage} alt={item.title} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
+            {/* 🔥 核心修改：使用 Next.js Image 组件进行自动压缩和优化 */}
+            <Image 
+              src={displayImage} 
+              alt={item.title} 
+              fill // 自动填满父容器
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" // 告诉浏览器不同屏幕下载多大图片
+              className="object-cover transition-transform duration-700 group-hover:scale-105"
+              loading="lazy"
+              quality={75} // 稍微降低质量以换取极速加载（肉眼看不出区别）
+            />
             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           </>
         ) : (
@@ -625,10 +636,10 @@ function PromptCard({ item, onClick, onDelete }) {
           </span>
         </div>
       </div>
+      
+      {/* 下面的内容部分保持不变 */}
       <div className="flex flex-col flex-1 p-5">
         <h3 className="text-lg font-bold text-slate-900 leading-snug mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">{item.title}</h3>
-        
-        {/* 🔥 修改：直接显示提示词内容，解决重复标题问题 */}
         <p className="text-sm text-slate-500 leading-relaxed line-clamp-3 mb-5 min-h-[4.5em]">{displayContent}</p>
 
         <div className="mt-auto flex items-center justify-between pt-4 border-t border-slate-50">
@@ -638,7 +649,6 @@ function PromptCard({ item, onClick, onDelete }) {
           </div>
           
           <div className="flex items-center gap-2">
-              {/* 🔥 新增：删除按钮 (仅在有 onDelete 属性时显示) */}
               {onDelete && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); onDelete(); }}
