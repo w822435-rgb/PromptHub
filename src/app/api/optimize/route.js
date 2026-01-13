@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-// 🔥 核心修改 1：强制使用 Edge Runtime，突破 10秒 超时限制
+// 🔥 保持 Edge 模式以防止超时
 export const runtime = 'edge'; 
 
 const isSiliconFlow = !!process.env.SILICONFLOW_API_KEY;
@@ -12,8 +12,6 @@ const apiKey = isSiliconFlow
   ? process.env.SILICONFLOW_API_KEY 
   : process.env.OPENAI_API_KEY;
 
-// 如果用的是 SiliconFlow，通常模型名是 'deepseek-ai/DeepSeek-V3'
-// 如果用的是 DeepSeek 官方，模型名通常是 'deepseek-chat'
 const MODEL_NAME = isSiliconFlow 
   ? "deepseek-ai/DeepSeek-V3" 
   : "deepseek-chat";
@@ -29,11 +27,10 @@ export async function POST(request) {
     const isChinese = /[\u4e00-\u9fa5]/.test(userInput);
     const targetLanguage = isChinese ? "Simplified Chinese (简体中文)" : "English";
 
-    // 默认参数
     let temperature = 0.7;
     let systemPrompt = "";
 
-    // --- 1. 绘画模式 (Nano Banana Pro 深度优化版) ---
+    // --- 1. 绘画模式 (保持不变) ---
     if (mode === 'image') {
       temperature = 1.0; 
       systemPrompt = `
@@ -64,32 +61,44 @@ Your goal is to convert user descriptions into high-quality AI art prompts optim
 }
 `;
     } 
-    // --- 2. 默认对话模式 (策略菜单逻辑) ---
+    // --- 2. 提示词生成模式 (Meta-Prompt 极速版) ---
     else {
-      temperature = 1.3; // DeepSeek 建议稍微调高温度以获得更有创意的思维
+      temperature = 0.7; 
       systemPrompt = `
-You are a **Prompt Engineering Strategist**.
-The user wants a highly capable AI Agent.
-Your goal is to write a System Prompt that creates a **"Wow Moment"**.
+You are a **Senior Prompt Architect**. 
+Your goal is to transform the user's request into a **High-Performance System Prompt** using a strict template.
 
-**THE STRATEGY: "DIAGNOSE & PRESCRIBE"**
-1. **Acknowledge** the user's goal.
-2. **Provide a "Menu"** of 3 distinct approaches/styles.
-3. **Wait** for the user's choice.
+**CRITICAL RULE: KEEP IT CONCISE.** The output must be efficient. Do not generate overly long descriptions.
 
-**LANGUAGE**: Output in **${targetLanguage}**.
+**STRICT OUTPUT STRUCTURE:**
 
-**OUTPUT FORMAT (Markdown):**
-**# 🎭 ROLE IDENTITY**
-...
-**# 🎯 PRIME OBJECTIVE**
-...
-**# 📋 STRATEGY MENU**
-| Option | Style | Best For... |
-| :--- | :--- | :--- |
-| **A** | ... | ... |
-| **B** | ... | ... |
-| **C** | ... | ... |
+---
+**# ROLE**
+[Define a specific expert persona.]
+
+**# CONTEXT**
+[Briefly describe the scenario and boundaries.]
+
+**# TASK**
+1. **Information Gathering**: [Design 3-4 critical questions to ask the user first.]
+2. **Analysis**: [Instruct to analyze the input.]
+3. **Action**: [Instruct to provide the solution.]
+
+**# CONSTRAINTS**
+* [Tone/Style guidelines.]
+* [Core Limitations & Safety protocols.]
+
+**# FORMAT**
+[Define the response structure: 1. Acknowledge -> 2. Analysis -> 3. Solution.]
+
+**# EXAMPLE**
+[Create a **VERY BRIEF** User/AI dialogue example. **Limit the example to under 100 words**. Show the STRUCTURE, but keep the content minimal.]
+---
+
+**INSTRUCTIONS:**
+1. **Do NOT** execute the user's request. Write a *System Prompt* for an AI that can do it.
+2. **Interactive Approach**: The # TASK must include an "Information Gathering" step.
+3. Output directly in **${targetLanguage}**.
 `;
     }
 
@@ -99,7 +108,7 @@ Your goal is to write a System Prompt that creates a **"Wow Moment"**.
         { role: "system", content: systemPrompt },
         { role: "user", content: userInput }
       ],
-      stream: true, // 🔥 必须开启流式传输，防止 Vercel 认为连接挂起
+      stream: true, 
       response_format: mode === 'image' ? { type: "json_object" } : { type: "text" },
       temperature: temperature,
       max_tokens: 4096, 
@@ -125,6 +134,6 @@ Your goal is to write a System Prompt that creates a **"Wow Moment"**.
 
   } catch (error) {
     console.error("API Error:", error);
-    return new Response(JSON.stringify({ error: `AI 响应超时或出错: ${error.message}` }), { status: 500 });
+    return new Response(JSON.stringify({ error: `AI Error: ${error.message}` }), { status: 500 });
   }
 }
