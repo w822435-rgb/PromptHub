@@ -1,5 +1,8 @@
 import OpenAI from "openai";
 
+// 🔥 核心修改 1：强制使用 Edge Runtime，突破 10秒 超时限制
+export const runtime = 'edge'; 
+
 const isSiliconFlow = !!process.env.SILICONFLOW_API_KEY;
 const baseURL = isSiliconFlow 
   ? "https://api.siliconflow.cn/v1" 
@@ -9,13 +12,13 @@ const apiKey = isSiliconFlow
   ? process.env.SILICONFLOW_API_KEY 
   : process.env.OPENAI_API_KEY;
 
+// 如果用的是 SiliconFlow，通常模型名是 'deepseek-ai/DeepSeek-V3'
+// 如果用的是 DeepSeek 官方，模型名通常是 'deepseek-chat'
 const MODEL_NAME = isSiliconFlow 
   ? "deepseek-ai/DeepSeek-V3" 
   : "deepseek-chat";
 
 const client = new OpenAI({ apiKey, baseURL });
-
-export const runtime = 'edge'; 
 
 export async function POST(request) {
   try {
@@ -61,47 +64,32 @@ Your goal is to convert user descriptions into high-quality AI art prompts optim
 }
 `;
     } 
-    // --- 2. 默认对话模式 (保持原有 CO-STAR + 策略菜单逻辑) ---
+    // --- 2. 默认对话模式 (策略菜单逻辑) ---
     else {
-      temperature = 0.8; 
+      temperature = 1.3; // DeepSeek 建议稍微调高温度以获得更有创意的思维
       systemPrompt = `
 You are a **Prompt Engineering Strategist**.
-The user wants a highly capable AI Agent (Writer, Analyst, Planner).
-Your goal is to write a System Prompt that creates a **"Wow Moment"** immediately.
+The user wants a highly capable AI Agent.
+Your goal is to write a System Prompt that creates a **"Wow Moment"**.
 
 **THE STRATEGY: "DIAGNOSE & PRESCRIBE"**
-Instead of asking open questions ("What do you want?"), the generated AI Agent must:
-1.  **Acknowledge** the user's goal with expert insight.
-2.  **Provide a "Menu"** of 3 distinct approaches/styles for the user to pick from.
-3.  **Wait** for the user's choice before generating the full content.
+1. **Acknowledge** the user's goal.
+2. **Provide a "Menu"** of 3 distinct approaches/styles.
+3. **Wait** for the user's choice.
 
 **LANGUAGE**: Output in **${targetLanguage}**.
 
 **OUTPUT FORMAT (Markdown):**
-
 **# 🎭 ROLE IDENTITY**
-[Define a specific, high-level persona.]
-
+...
 **# 🎯 PRIME OBJECTIVE**
-[What is the ultimate goal?]
-
-**# 🧠 COGNITIVE PROCESS**
-1. **Input Analysis**
-2. **Strategy Selection**
-3. **Execution**
-
-**# 📋 INITIALIZATION PROTOCOL**
-The AI's first response MUST be a **"Strategy Menu"**:
-"👋 **[Role Name] Online.** I see you want to [User's Goal].
-To get the best result, choose a strategy:
-
-| Option | Style/Focus | Best For... |
+...
+**# 📋 STRATEGY MENU**
+| Option | Style | Best For... |
 | :--- | :--- | :--- |
-| **A** | [Style 1] | [Scenario 1] |
-| **B** | [Style 2] | [Scenario 2] |
-| **C** | [Style 3] | [Scenario 3] |
-
-*Reply with A, B, or C, or tell me your specific requirements.*"
+| **A** | ... | ... |
+| **B** | ... | ... |
+| **C** | ... | ... |
 `;
     }
 
@@ -111,7 +99,7 @@ To get the best result, choose a strategy:
         { role: "system", content: systemPrompt },
         { role: "user", content: userInput }
       ],
-      stream: true,
+      stream: true, // 🔥 必须开启流式传输，防止 Vercel 认为连接挂起
       response_format: mode === 'image' ? { type: "json_object" } : { type: "text" },
       temperature: temperature,
       max_tokens: 4096, 
@@ -137,6 +125,6 @@ To get the best result, choose a strategy:
 
   } catch (error) {
     console.error("API Error:", error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: `AI 响应超时或出错: ${error.message}` }), { status: 500 });
   }
 }
